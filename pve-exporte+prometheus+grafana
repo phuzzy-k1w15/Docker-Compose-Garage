@@ -1,0 +1,78 @@
+services:
+  pve-exporter:
+    image: prompve/prometheus-pve-exporter:latest
+    container_name: pve-exporter
+    configs:
+      - source: pve_config
+        target: /etc/prometheus/pve.yml
+    ports:
+      - "9221:9221"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    configs:
+      - source: prometheus_config
+        target: /etc/prometheus/prometheus.yml
+    volumes:
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    depends_on:
+      - pve-exporter
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=changeme
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+configs:
+  prometheus_config:
+    content: |
+      global:
+        scrape_interval: 15s
+
+      scrape_configs:
+        - job_name: 'prometheus'
+          static_configs:
+            - targets: ['localhost:9090']
+
+        - job_name: 'pve'
+          static_configs:
+            - targets:
+              - [PROXMOX IP HERE]
+              #- You can add more nodes here
+          metrics_path: /pve
+          params:
+            module: [default]
+            cluster: ['1']
+            node: ['1']
+          relabel_configs:
+            - source_labels: [__address__]
+              target_label: __param_target
+            - source_labels: [__param_target]
+              target_label: instance
+            - target_label: __address__
+              replacement: pve-exporter:9221
+
+  pve_config:
+    content: |
+      default:
+        user: [YOUR PVE USER]@pve
+        token_name: "[PVE USER TOKEN NAME]"
+        token_value: "[PVE USER TOKEN SECRET]"
+        verify_ssl: false
+
+volumes:
+  prometheus_data:
+  grafana_data:
